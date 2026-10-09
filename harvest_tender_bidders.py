@@ -39,12 +39,7 @@ thread_local = threading.local()
 def get_session():
     global SESSION_GEN
     if not hasattr(thread_local, "session") or getattr(thread_local, "gen", -1) != SESSION_GEN:
-        s = requests.Session(impersonate="chrome120")
-        try:
-            s.get("https://user.tender.gov.mn/mn/result/list", timeout=10)
-        except Exception:
-            pass
-        thread_local.session = s
+        thread_local.session = requests.Session(impersonate="chrome120")
         thread_local.gen = SESSION_GEN
     return thread_local.session
 
@@ -230,7 +225,7 @@ def fetch_single_tender(tender_meta, retries=10):
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'Origin': 'https://user.tender.gov.mn',
-        'Referer': f'https://user.tender.gov.mn/mn/result/detail/{inv_id}',
+        'Referer': f'https://user.tender.gov.mn/mn/result/detail?invitationId={inv_id}',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'X-Requested-With': 'XMLHttpRequest'
     }
@@ -239,37 +234,17 @@ def fetch_single_tender(tender_meta, retries=10):
         # Wait if paused due to rate limiting
         pause_event.wait()
         # Random jitter to look human and avoid traffic spikes
-        time.sleep(random.uniform(1.2, 2.5))
+        time.sleep(random.uniform(0.5, 1.5))
         
         try:
             s = get_session()
             r = s.post(url, data=payload, headers=req_headers, timeout=20)
             
             if r.status_code in [403, 429]:
-                is_cf = (
-                    r.headers.get("cf-mitigated") == "challenge" or
-                    "Just a moment..." in r.text or
-                    "Attention Required!" in r.text or
-                    "cf-error-details" in r.text or
-                    "challenges.cloudflare.com" in r.text.lower()
-                )
-                
-                if is_cf:
-                    # Жинхэнэ Cloudflare хамгаалалт гарч ирсэн тул 4G IP сэлгэнэ
-                    handle_rate_limit(r.status_code, "Cloudflare Challenge")
-                    time.sleep(3 + attempt * 2)
-                    continue
-                else:
-                    # Nginx 403 (Оролцогчгүй / устсан / хоосон тендер) тул шууд EMPTY гэж хадгална
-                    return {
-                        "inv_id": inv_id,
-                        "status": "EMPTY",
-                        "bidders": [],
-                        "bidders_count": 0,
-                        "winners_count": 0,
-                        "losers_count": 0,
-                        "error": None
-                    }
+                # 403 эсвэл 429 бол блок / лимит тул шууд IP сэлгээд дахин оролдоно
+                handle_rate_limit(r.status_code, "Cloudflare / Rate Limit")
+                time.sleep(3 + attempt * 2)
+                continue
             elif r.status_code != 200:
                 time.sleep(2 + attempt * 2)
                 continue
@@ -295,18 +270,9 @@ def fetch_single_tender(tender_meta, retries=10):
                 "losers_count": losers_count,
                 "error": None
             }
-        except Exception as e:
-            time.sleep(2.0 + attempt * 2.0)
-            if attempt == retries - 1:
-                return {
-                    "inv_id": inv_id,
-                    "status": "ERROR",
-                    "bidders": [],
-                    "bidders_count": 0,
-                    "winners_count": 0,
-                    "losers_count": 0,
-                    "error": str(e)
-                }
+        except Exception:
+            time.sleep(2)
+            
     return {
         "inv_id": inv_id,
         "status": "ERROR",
@@ -314,8 +280,9 @@ def fetch_single_tender(tender_meta, retries=10):
         "bidders_count": 0,
         "winners_count": 0,
         "losers_count": 0,
-        "error": "Max retries exceeded"
+        "error": f"Failed after {retries} retries"
     }
+
 
 def db_writer_thread(write_queue, stop_event, db_path=DB_PATH):
     """
@@ -535,11 +502,12 @@ def main():
                 sys.stdout.write(status_line)
                 sys.stdout.flush()
                 
-            # Periodic auto-cooling every 300 tenders (60s pause to reset rate limit)
+            # Periodic auto-cooling every 300 tenders
             if done_count > 0 and done_count % 300 == 0:
-                sys.stdout.write(f"\n❄️  [AUTO-COOLING] 300 тендер амжилттай татлаа. Лимитээс сэргийлж 60 сек амарч байна...\n")
+                cooling_time = 10 if AUTO_ROTATE_CELLULAR else 60
+                sys.stdout.write(f"\n❄️  [AUTO-COOLING] 300 тендер амжилттай татлаа ({cooling_time} сек амралт)...\n")
                 sys.stdout.flush()
-                time.sleep(60)
+                time.sleep(cooling_time)
                 
             # Update harvest_status.json every 5 seconds for external monitoring
             if time.time() - last_status_write > 5.0 or done_count == total_to_process:
