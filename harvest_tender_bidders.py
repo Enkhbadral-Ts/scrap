@@ -39,7 +39,12 @@ thread_local = threading.local()
 def get_session():
     global SESSION_GEN
     if not hasattr(thread_local, "session") or getattr(thread_local, "gen", -1) != SESSION_GEN:
-        thread_local.session = requests.Session(impersonate="chrome120")
+        s = requests.Session(impersonate="chrome120")
+        try:
+            s.get("https://user.tender.gov.mn/mn/result/list", timeout=10)
+        except Exception:
+            pass
+        thread_local.session = s
         thread_local.gen = SESSION_GEN
     return thread_local.session
 
@@ -225,7 +230,7 @@ def fetch_single_tender(tender_meta, retries=10):
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'Origin': 'https://user.tender.gov.mn',
-        'Referer': f'https://user.tender.gov.mn/mn/result/detail?invitationId={inv_id}',
+        'Referer': f'https://user.tender.gov.mn/mn/result/detail/{inv_id}',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'X-Requested-With': 'XMLHttpRequest'
     }
@@ -234,41 +239,37 @@ def fetch_single_tender(tender_meta, retries=10):
         # Wait if paused due to rate limiting
         pause_event.wait()
         # Random jitter to look human and avoid traffic spikes
-        time.sleep(random.uniform(1.5, 3.0))
+        time.sleep(random.uniform(1.2, 2.5))
         
         try:
             s = get_session()
             r = s.post(url, data=payload, headers=req_headers, timeout=20)
             
             if r.status_code in [403, 429]:
-                # Cloudflare block-д орсон эсвэл тендер устсан (Nginx 403) эсэхийг ялгахын тулд
-                # Үндсэн хуудас руу нь хандаж шалгана.
-                try:
-                    base_resp = s.get(f"https://user.tender.gov.mn/mn/result/detail/{inv_id}", timeout=10)
-                    is_cf = (
-                        "cf-mitigated" in base_resp.headers or
-                        "challenge-platform" in base_resp.text.lower() or
-                        "__cf" in base_resp.text.lower()
-                    )
-                    
-                    if base_resp.status_code == 404 or (base_resp.status_code == 403 and not is_cf):
-                        # Энэ нь устсан тендер байна. IP солих шаардлагагүй.
-                        return {
-                            "inv_id": inv_id,
-                            "status": "EMPTY",
-                            "bidders": [],
-                            "bidders_count": 0,
-                            "winners_count": 0,
-                            "losers_count": 0,
-                            "error": None
-                        }
-                except Exception:
-                    pass
+                is_cf = (
+                    r.headers.get("cf-mitigated") == "challenge" or
+                    "Just a moment..." in r.text or
+                    "Attention Required!" in r.text or
+                    "cf-error-details" in r.text or
+                    "challenges.cloudflare.com" in r.text.lower()
+                )
                 
-                # Үгүй бол үнэхээр Cloudflare / Rate limit block байна
-                handle_rate_limit(r.status_code, "Cloudflare Challenge or Rate Limit")
-                time.sleep(5 + attempt * 4)
-                continue
+                if is_cf:
+                    # Жинхэнэ Cloudflare хамгаалалт гарч ирсэн тул 4G IP сэлгэнэ
+                    handle_rate_limit(r.status_code, "Cloudflare Challenge")
+                    time.sleep(3 + attempt * 2)
+                    continue
+                else:
+                    # Nginx 403 (Оролцогчгүй / устсан / хоосон тендер) тул шууд EMPTY гэж хадгална
+                    return {
+                        "inv_id": inv_id,
+                        "status": "EMPTY",
+                        "bidders": [],
+                        "bidders_count": 0,
+                        "winners_count": 0,
+                        "losers_count": 0,
+                        "error": None
+                    }
             elif r.status_code != 200:
                 time.sleep(2 + attempt * 2)
                 continue
