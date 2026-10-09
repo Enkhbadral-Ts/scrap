@@ -181,7 +181,7 @@ def rotate_cellular_ip():
         time.sleep(4)
         subprocess.run(['sudo', 'qmicli', '-p', '-d', '/dev/cdc-wdm0', '--dms-set-operating-mode=online'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
         time.sleep(5)
-        subprocess.run(['sudo', 'nmcli', 'connection', 'up', 'MobiCom'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        subprocess.run(['sudo', 'nmcli', 'connection', 'up', 'MobiCom'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
         time.sleep(2)
         new_ip = subprocess.getoutput('curl --max-time 10 -s -4 https://icanhazip.com || curl --max-time 10 -s -4 https://api.ipify.org').strip()
         SESSION_GEN += 1
