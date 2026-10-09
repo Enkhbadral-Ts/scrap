@@ -1,0 +1,18 @@
+.env
+__pycache__/
+*.pyc
+
+# Data files
+*.db
+*.db-shm
+*.db-wal
+*.json
+*.csv
+*.xlsx
+*.xls
+*.docx
+*.png
+*.jpg
+*.log
+*.txt
+.DS_Store

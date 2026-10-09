@@ -1,0 +1,10 @@
+import sqlite3
+conn = sqlite3.connect("/home/maaraa/tender_harvester/tender_bidders.db")
+c = conn.cursor()
+c.execute("SELECT count(*) FROM tender_bidders;")
+print("Bidders:", c.fetchone()[0])
+c.execute("SELECT count(*) FROM tender_sync_log WHERE status='OK';")
+print("OK Tenders:", c.fetchone()[0])
+c.execute("SELECT count(*) FROM tender_sync_log WHERE status='EMPTY';")
+print("EMPTY Tenders:", c.fetchone()[0])
+conn.close()

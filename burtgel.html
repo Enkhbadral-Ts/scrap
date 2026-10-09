@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Компани & Хувьцаа Эзэмшигч Шалгах | Khuuli.com</title>
+  <meta name="description" content="Монгол Улсын 270,000+ хуулийн этгээдийн бүртгэл, хувьцаа эзэмшигч, гүйцэтгэх захирал, эцсийн өмчлөгчийг хормын төдийд хайх.">
+  <link rel="icon" type="image/x-icon" href="/app-icon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-primary: #0a0e1a;
+      --bg-card: #111827;
+      --bg-card-hover: #1a2332;
+      --border: #1e293b;
+      --border-accent: #c9a84c33;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --gold: #c9a84c;
+      --gold-soft: #c9a84c22;
+      --gold-bright: #e8c84a;
+      --blue: #3b82f6;
+      --blue-soft: #3b82f622;
+      --green: #22c55e;
+      --green-soft: #22c55e22;
+      --red: #ef4444;
+      --purple: #a78bfa;
+      --purple-soft: #a78bfa22;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    .hero {
+      position: relative;
+      padding: 60px 20px 40px;
+      text-align: center;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, var(--gold-soft) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--gold-bright), var(--gold), #d4a853);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+      position: relative;
+    }
+    .hero p {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      max-width: 500px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .hero .stat-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--gold-soft);
+      border: 1px solid var(--border-accent);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      color: var(--gold);
+      margin-top: 12px;
+      position: relative;
+    }
+
+    .search-container {
+      max-width: 680px;
+      margin: 0 auto 30px;
+      padding: 0 20px;
+      position: relative;
+    }
+    .search-box {
+      position: relative;
+    }
+    .search-box input {
+      width: 100%;
+      padding: 16px 90px 16px 20px;
+      background: var(--bg-card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-primary);
+      font-size: 1rem;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .search-box input:focus {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px var(--gold-soft), var(--shadow);
+    }
+    .search-box input::placeholder { color: var(--text-muted); }
+    .search-box .search-btn {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      bottom: 8px;
+      border: none;
+      border-radius: 8px;
+      background: var(--gold);
+      color: #000;
+      padding: 0 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .search-box .search-btn:hover {
+      background: var(--gold-bright);
+    }
+    .search-box .spinner {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
+
+    .filters {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .filter-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+    }
+    .filter-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .filter-btn.active {
+      background: var(--gold-soft);
+      border-color: var(--gold);
+      color: var(--gold);
+    }
+
+    .results-info {
+      max-width: 680px;
+      margin: 0 auto 12px;
+      padding: 0 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .results-info span {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .results-info .time {
+      color: var(--green);
+      font-weight: 500;
+    }
+
+    .results {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 0 20px 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .company-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      transition: all 0.25s;
+      cursor: pointer;
+    }
+    .company-card:hover {
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
+    }
+    .company-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+    .company-name {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .company-reg {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      background: var(--blue-soft);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+      white-space: nowrap;
+      margin-left: 12px;
+      flex-shrink: 0;
+    }
+    .company-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .company-meta span { display: flex; align-items: center; gap: 4px; }
+
+    .roles-list { display: flex; flex-direction: column; gap: 6px; }
+    .role-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+    }
+    .role-tag.shareholder { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--border-accent); }
+    .role-tag.director { background: var(--blue-soft); color: var(--blue); border: 1px solid #3b82f633; }
+    .role-tag.ubo { background: var(--purple-soft); color: var(--purple); border: 1px solid #a78bfa33; }
+
+    .activities {
+      margin-top: 10px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      display: none;
+    }
+    .company-card.expanded .activities { display: block; }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state .emoji { font-size: 3rem; margin-bottom: 12px; }
+    .empty-state p { font-size: 0.9rem; }
+
+    .footer {
+      text-align: center;
+      padding: 20px;
+      font-size: 0.75rem;
+      color: var(-    .load-more-btn {
+      background: linear-gradient(135deg, #1e293b, #334155);
+      color: var(--text-primary);
+      border: 1px solid var(--border-accent);
+      padding: 13px 32px;
+      font-size: 15px;
+      font-weight: 600;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 0.25s ease;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .load-more-btn:hover {
+      background: linear-gradient(135deg, #334155, #475569);
+      border-color: var(--gold);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(201, 168, 76, 0.25);
+    }
+    .load-more-btn:active {
+      transform: translateY(0);
+    }
+
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 1.5rem; }
+      .company-header { flex-direction: column; gap: 6px; }
+      .company-reg { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>⚖️ Компани & Хувьцаа Эзэмшигч Шалгах</h1>
+  <p>Монгол Улсын 270,000+ хуулийн этгээдийн бүртгэл, хувьцаа эзэмшигч, захирал, эцсийн өмчлөгчийг хормын төдийд хайна.</p>
+  <div class="stat-badge">📊 270,560 компани · 1,206,367 хүний бүртгэл · Өдөр бүр шинэчлэгддэг</div>
+</div>
+
+<div class="search-container">
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="Хүний нэр, компанийн нэр, эсвэл регистрийн дугаар бичнэ үү..." autocomplete="off">
+    <button id="searchBtn" class="search-btn">Хайх</button>
+    <div class="spinner" id="spinner" style="display:none; right: 90px;"></div>
+  </div>
+
+  <div class="filters">
+    <button class="filter-btn active" data-filter="all">Бүгд</button>
+    <button class="filter-btn" data-filter="shareholder">Хувьцаа эзэмшигч</button>
+    <button class="filter-btn" data-filter="director">Гүйцэтгэх захирал</button>
+    <button class="filter-btn" data-filter="ubo">Эцсийн өмчлөгч (UBO)</button>
+  </div>
+</div>
+
+<div class="results-info" id="resultsInfo" style="display:none">
+  <span id="resultCount"></span>
+  <span class="time" id="resultTime"></span>
+</div>
+
+<div class="results" id="results">
+  <div class="empty-state" id="emptyState">
+    <div class="emoji">🔍</div>
+    <p>Хайх нэр эсвэл компанийн мэдээллээ оруулна уу</p>
+  </div>
+</div>
+
+<div id="loadMoreSection" style="display: none; text-align: center; margin: 25px 0 40px;">
+  <button id="loadMoreBtn" class="load-more-btn">
+    <span>⬇️ Цааш үзэх (Дараагийн 50 үр дүн)</span>
+  </button>
+  <div id="loadMoreSpinner" style="display:none; margin: 15px auto; color: var(--gold); font-size: 14px;">
+    ⏳ Уншиж байна...
+  </div>
+</div>
+
+<div class="footer">
+  Эх сурвалж: <a href="https://opendata.gov.mn" target="_blank">opendata.gov.mn</a> — УБЕГ-ын нээлттэй өгөгдөл · Өдөр бүр автоматаар шинэчлэгддэг · <a href="/">Khuuli.com</a>
+</div>
+
+<script>
+const searchInput = document.getElementById('searchInput');
+const resultsDiv = document.getElementById('results');
+const resultsInfo = document.getElementById('resultsInfo');
+const resultCount = document.getElementById('resultCount');
+const resultTime = document.getElementById('resultTime');
+const searchBtn = document.getElementById('searchBtn');
+const spinner = document.getElementById('spinner');
+const emptyState = document.getElementById('emptyState');
+const loadMoreSection = document.getElementById('loadMoreSection');
+const loadMoreBtn = document.getElementById('loadMoreBtn');
+const loadMoreSpinner = document.getElementById('loadMoreSpinner');
+
+let activeFilter = 'all';
+let currentQuery = '';
+let currentOffset = 0;
+let totalLoadedCompanies = 0;
+let hasMore = false;
+
+// Filters
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeFilter = btn.dataset.filter;
+    if (searchInput.value.trim().length >= 2) {
+      doSearch(false);
+    }
+  });
+});
+
+// Search button click
+searchBtn.addEventListener('click', () => doSearch(false));
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    doSearch(false);
+  }
+});
+
+function renderCompanyCards(companies) {
+  return companies.map(comp => {
+    const rolesHtml = comp.roles.map(r => {
+      let cls = 'shareholder';
+      let icon = '💰';
+      if (r.role.includes('захирал') || r.role.includes('Захирал')) { cls = 'director'; icon = '👔'; }
+      else if (r.role.includes('UBO') || r.role.includes('өмчлөгч')) { cls = 'ubo'; icon = '🏛️'; }
+      const gender = r.gender === 'Эр' ? '♂' : r.gender === 'Эм' ? '♀' : '';
+      const date = r.date ? ` · ${r.date}` : '';
+      return `<span class="role-tag ${cls}">${icon} ${r.role}: ${r.father} ${r.first} ${gender}${date}</span>`;
+    }).join('');
+
+    const actsText = comp.activities ? comp.activities.split('; ').slice(0, 5).join(', ') : '';
+
+    return `
+      <div class="company-card" onclick="this.classList.toggle('expanded')">
+        <div class="company-header">
+          <span class="company-name">${comp.name} ХХК</span>
+          <span class="company-reg">#${comp.reg_no}</span>
+        </div>
+        <div class="company-meta">
+          <span>📅 ${comp.reg_date}</span>
+          <span>📋 ${comp.form}</span>
+        </div>
+        <div class="roles-list">${rolesHtml}</div>
+        ${actsText ? `<div class="activities">📌 <strong>Үйл ажиллагааны чиглэл:</strong> ${actsText}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function doSearch(isLoadMore = false) {
+  if (!isLoadMore) {
+    const q = searchInput.value.trim();
+    if (q.length < 2) {
+      resultsDiv.innerHTML = '<div class="empty-state" id="emptyState"><div class="emoji">🔍</div><p>Хайх нэр эсвэл компанийн мэдээллээ оруулна уу</p></div>';
+      resultsInfo.style.display = 'none';
+      loadMoreSection.style.display = 'none';
+      return;
+    }
+    currentQuery = q;
+    currentOffset = 0;
+    totalLoadedCompanies = 0;
+    searchBtn.style.opacity = '0.5';
+    searchBtn.style.pointerEvents = 'none';
+    spinner.style.display = 'block';
+  } else {
+    loadMoreBtn.style.display = 'none';
+    loadMoreSpinner.style.display = 'block';
+  }
+
+  try {
+    const url = `/api/burtgel/search?q=${encodeURIComponent(currentQuery)}&filter=${activeFilter}&offset=${currentOffset}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+
+    if (!isLoadMore) {
+      spinner.style.display = 'none';
+      searchBtn.style.opacity = '1';
+      searchBtn.style.pointerEvents = 'auto';
+      resultsInfo.style.display = 'flex';
+      resultTime.textContent = `⚡ ${data.duration_ms.toFixed(1)} мс`;
+    } else {
+      loadMoreSpinner.style.display = 'none';
+    }
+
+    if (!data.companies || data.companies.length === 0) {
+      if (!isLoadMore) {
+        resultsDiv.innerHTML = '<div class="empty-state"><div class="emoji">🤷</div><p>Илэрц олдсонгүй. Өөр нэр эсвэл бүтэн нэрээр хайна уу.</p></div>';
+        resultCount.textContent = '0 илэрц';
+      }
+      loadMoreSection.style.display = 'none';
+      return;
+    }
+
+    totalLoadedCompanies += data.companies.length;
+    const cardsHtml = renderCompanyCards(data.companies);
+
+    if (isLoadMore) {
+      resultsDiv.insertAdjacentHTML('beforeend', cardsHtml);
+    } else {
+      resultsDiv.innerHTML = cardsHtml;
+    }
+
+    resultCount.textContent = `Нийт ${totalLoadedCompanies} компани харуулж байна`;
+
+    hasMore = !!data.has_more;
+    if (hasMore) {
+      loadMoreSection.style.display = 'block';
+      loadMoreBtn.style.display = 'inline-flex';
+    } else {
+      loadMoreSection.style.display = 'none';
+    }
+
+  } catch (err) {
+    if (!isLoadMore) {
+      spinner.style.display = 'none';
+      searchBtn.style.opacity = '1';
+      searchBtn.style.pointerEvents = 'auto';
+      resultsDiv.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><p>Алдаа гарлаа. Дахин оролдоно уу.</p></div>';
+    } else {
+      loadMoreSpinner.style.display = 'none';
+      loadMoreBtn.style.display = 'inline-flex';
+    }
+  }
+}
+
+loadMoreBtn.addEventListener('click', () => {
+  currentOffset += 50;
+  doSearch(true);
+});
+
+// Focus on load
+searchInput.focus();
+</script>
+</body>
+</html>
