@@ -213,6 +213,11 @@ def handle_rate_limit(code, msg=""):
             sys.stdout.write("✅ [RESUMED] Шинэ IP дээр таталтыг шууд үргэлжлүүлж байна.\n")
             sys.stdout.flush()
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "X-Requested-With": "XMLHttpRequest"
+}
+
 def fetch_single_tender(tender_meta, retries=10):
     inv_id = str(tender_meta["inv_id"]).strip()
     url = "https://user.tender.gov.mn/mn/result/detail/bidderList"
@@ -221,24 +226,15 @@ def fetch_single_tender(tender_meta, retries=10):
         "groupBy": "tender"
     }
     
-    req_headers = {
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'Origin': 'https://user.tender.gov.mn',
-        'Referer': f'https://user.tender.gov.mn/mn/result/detail?invitationId={inv_id}',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'X-Requested-With': 'XMLHttpRequest'
-    }
-    
     for attempt in range(retries):
         # Wait if paused due to rate limiting
         pause_event.wait()
         # Random jitter to look human and avoid traffic spikes
-        time.sleep(random.uniform(0.5, 1.5))
+        time.sleep(random.uniform(0.3, 0.8))
         
         try:
             s = get_session()
-            r = s.post(url, data=payload, headers=req_headers, timeout=20)
+            r = s.post(url, data=payload, headers=HEADERS, timeout=20)
             
             if r.status_code in [403, 429]:
                 # 403 эсвэл 429 бол блок / лимит тул шууд IP сэлгээд дахин оролдоно
