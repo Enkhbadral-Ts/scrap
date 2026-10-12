@@ -139,6 +139,128 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             font-weight: 600;
         }
 
+        .btn-shutdown {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn-shutdown:hover {
+            background: rgba(239, 68, 68, 0.28);
+            border-color: #ef4444;
+            color: #ffffff;
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+            transform: translateY(-1px);
+        }
+        .btn-shutdown:active {
+            transform: translateY(0);
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            padding: 20px;
+        }
+        .modal-card {
+            background: #111827;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            border-radius: 20px;
+            padding: 28px 24px;
+            max-width: 440px;
+            width: 100%;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(239, 68, 68, 0.2);
+            text-align: center;
+            animation: modalFadeIn 0.2s ease-out;
+        }
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .modal-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            color: #ef4444;
+            margin-bottom: 16px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+        .modal-desc {
+            font-size: 13px;
+            color: #94a3b8;
+            line-height: 1.5;
+            margin-bottom: 24px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+        .btn-modal-cancel {
+            flex: 1;
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #cbd5e1;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-modal-cancel:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+        }
+        .btn-modal-confirm {
+            flex: 1;
+            padding: 10px 16px;
+            background: #dc2626;
+            border: 1px solid #ef4444;
+            color: #ffffff;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);
+        }
+        .btn-modal-confirm:hover {
+            background: #b91c1c;
+            border-color: #dc2626;
+        }
+
         .pulse-dot {
             width: 8px;
             height: 8px;
@@ -346,9 +468,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     </div>
                 </div>
             </div>
-            <div class="live-badge" id="live-badge">
-                <div class="pulse-dot"></div>
-                <span id="status-title">ONLINE</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="live-badge" id="live-badge">
+                    <div class="pulse-dot"></div>
+                    <span id="status-title">ONLINE</span>
+                </div>
+                <button class="btn-shutdown" onclick="openShutdownModal()" title="CM5 төхөөрөмжийг унтраах">
+                    <span style="font-size: 13px;">⏻</span> Унтраах
+                </button>
             </div>
         </div>
 
@@ -827,10 +954,65 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
+        let statusPollInterval = null;
+
+        function openShutdownModal() {
+            const modal = document.getElementById('shutdown-modal');
+            if (modal) modal.style.display = 'flex';
+        }
+
+        function closeShutdownModal() {
+            const modal = document.getElementById('shutdown-modal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        async function executeShutdown() {
+            const btn = document.getElementById('btn-confirm-shutdown');
+            const desc = document.getElementById('modal-desc-text');
+            const actions = document.getElementById('modal-actions-box');
+            
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = 'Унтрааж байна...';
+            }
+            if (desc) {
+                desc.innerHTML = '<span style="color: #38bdf8; font-size: 14px; font-weight: 600;">⏳ CM5 үйлдлийн систем унтрах команд илгээгдлээ.<br>Дискийг sync хийж цахилгаан салгахад бэлтгэж байна...</span>';
+            }
+            if (actions) {
+                actions.innerHTML = '<div style="color: #94a3b8; font-size: 12px; margin-top: 10px;">30 секундийн дараа төхөөрөмж бүрэн унтарна. Энэ цонхыг хааж болно.</div>';
+            }
+
+            if (statusPollInterval) {
+                clearInterval(statusPollInterval);
+            }
+
+            try {
+                await fetch('/api/system/shutdown', { method: 'POST' });
+            } catch (err) {
+                console.log('Shutdown initiated (network dropped as expected)');
+            }
+        }
+
         // Initial fetch and loop every 2.5 seconds
         updateStatus();
-        setInterval(updateStatus, 2500);
+        statusPollInterval = setInterval(updateStatus, 2500);
     </script>
+
+    <!-- Shutdown Confirmation Modal -->
+    <div class="modal-overlay" id="shutdown-modal">
+        <div class="modal-card">
+            <div class="modal-icon">⏻</div>
+            <div class="modal-title">CM5 Төхөөрөмжийг унтраах уу?</div>
+            <div class="modal-desc" id="modal-desc-text">
+                Raspberry Pi CM5 төхөөрөмж бүрэн унтарна. SSD кэш найдвартай хадгалагдана.<br><br>
+                <span style="color: #fbbf24; font-weight: 600;">⚠️ Санамж:</span> Төхөөрөмж унтарсны дараа дахин асаахын тулд тэжээлийн залгуурыг салгаж буцааж залгах хэрэгтэйг анхаарна уу!
+            </div>
+            <div class="modal-actions" id="modal-actions-box">
+                <button class="btn-modal-cancel" onclick="closeShutdownModal()">Болих</button>
+                <button class="btn-modal-confirm" id="btn-confirm-shutdown" onclick="executeShutdown()">Тийм, унтраах</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -1352,6 +1534,19 @@ def trigger_carrier_sms_check(carrier_override=None):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+def trigger_system_shutdown():
+    def _do_shutdown():
+        time.sleep(1.2)
+        try:
+            subprocess.run("sync", shell=True)
+            subprocess.run("sudo /usr/sbin/shutdown -h now || sudo /usr/bin/systemctl poweroff || sudo poweroff", shell=True)
+        except Exception as e:
+            print(f"Error during shutdown: {e}")
+
+    t = threading.Thread(target=_do_shutdown, daemon=True)
+    t.start()
+    return {"success": True, "message": "CM5 shutdown initiated safely"}
+
 class DashboardHandler(BaseHTTPRequestHandler):
     cached_ip = ""
     last_ip_check = 0
@@ -1510,6 +1705,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             res = trigger_carrier_sms_check(carrier_override=c_override)
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
+        elif parsed.path == "/api/system/shutdown":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            res = trigger_system_shutdown()
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
         else:
             self.send_response(404)
             self.send_header("Connection", "close")
@@ -1572,6 +1777,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             c_override = qs.get("carrier", [None])[0]
             res = trigger_carrier_sms_check(carrier_override=c_override)
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif parsed.path == "/api/system/shutdown":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            res = trigger_system_shutdown()
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
         else:
             self.send_response(404)
             self.send_header("Connection", "close")
