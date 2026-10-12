@@ -28,8 +28,22 @@ from curl_cffi import requests
 DB_PATH = "tender_bidders.db"
 STATUS_JSON_PATH = "harvest_status.json"
 
-HEADERS = {
+HEADERS_DETAIL = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "mn,en-US;q=0.9,en;q=0.8",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Referer": "https://www.tender.gov.mn/mn/invitation",
+}
+
+HEADERS_API = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+    "Origin": "https://www.tender.gov.mn",
+    "Referer": "https://www.tender.gov.mn/mn/invitation",
     "X-Requested-With": "XMLHttpRequest"
 }
 
@@ -39,7 +53,12 @@ thread_local = threading.local()
 def get_session():
     global SESSION_GEN
     if not hasattr(thread_local, "session") or getattr(thread_local, "gen", -1) != SESSION_GEN:
-        thread_local.session = requests.Session(impersonate="chrome120")
+        s = requests.Session(impersonate="chrome120")
+        try:
+            s.get("https://www.tender.gov.mn/", headers=HEADERS_DETAIL, timeout=8)
+        except Exception:
+            pass
+        thread_local.session = s
         thread_local.gen = SESSION_GEN
     return thread_local.session
 
@@ -111,42 +130,37 @@ def get_processed_ids(db_path=DB_PATH):
     return processed
 
 def parse_bidder_row(row, tender_meta):
-    if not isinstance(row, list) or len(row) < 4:
-        return None
-    raw_comp = row[0].strip() if isinstance(row[0], str) else ""
-    if not raw_comp or "Санал ирүүлсэн оролцогч байхгүй" in raw_comp:
+    if not isinstance(row, dict):
         return None
         
-    lot_name = row[1].strip() if len(row) > 1 and isinstance(row[1], str) else ""
-    
-    # entity link / id
-    link_html = row[3] if len(row) > 3 and isinstance(row[3], str) else ""
-    entity_id = ""
-    em = re.search(r'/mn/bidder/entity/(\d+)', link_html)
-    if em:
-        entity_id = em.group(1)
+    company_name = row.get("supplierName", "")
+    if company_name: company_name = str(company_name).strip()
+    if not company_name:
+        return None
         
-    # offered price
-    amt_html = row[4] if len(row) > 4 and isinstance(row[4], str) else ""
-    amt_clean = re.sub(r'[^\d.]', '', BeautifulSoup(amt_html, 'html.parser').text if '<' in amt_html else amt_html)
-    offered_price = float(amt_clean) if amt_clean else None
+    lot_name = "" # New API handles lots via separate tenderIds
     
-    # discount
-    disc_html = row[5] if len(row) > 5 and isinstance(row[5], str) else ""
-    discount = BeautifulSoup(disc_html, 'html.parser').text.strip() if '<' in disc_html else disc_html.strip()
+    entity_id = str(row.get("supplierId", ""))
     
-    # guarantee
-    guar_html = row[6] if len(row) > 6 and isinstance(row[6], str) else ""
-    guarantee = BeautifulSoup(guar_html, 'html.parser').text.strip() if '<' in guar_html else guar_html.strip()
+    offered_price = row.get("openedBidderPrice")
+    if offered_price is not None:
+        try:
+            offered_price = float(offered_price)
+        except ValueError:
+            offered_price = None
     
-    # status
-    st_html = row[7] if len(row) > 7 and isinstance(row[7], str) else ""
-    status = BeautifulSoup(st_html, 'html.parser').text.strip() if '<' in st_html else st_html.strip()
-    if not status:
+    discount = str(row.get("discountedAmount", ""))
+    if discount == "None": discount = ""
+    
+    guarantee = str(row.get("guaranteeText", ""))
+    if guarantee == "None": guarantee = ""
+    
+    status = str(row.get("wfmStatusName", "")).strip()
+    if status == "None" or not status:
         status = "Тодорхойгүй"
         
-    # reason / evaluation note
-    reason = row[8].strip() if len(row) > 8 and isinstance(row[8], str) else ""
+    reason = str(row.get("commentText", "")).strip()
+    if reason == "None": reason = ""
     
     return {
         "inv_id": str(tender_meta.get("inv_id", "")),
@@ -156,7 +170,7 @@ def parse_bidder_row(row, tender_meta):
         "client": str(tender_meta.get("client", "")),
         "tender_date": str(tender_meta.get("date", "")),
         "lot_name": lot_name,
-        "company_name": raw_comp,
+        "company_name": company_name,
         "entity_id": entity_id,
         "offered_price": offered_price,
         "discount": discount,
@@ -171,6 +185,38 @@ pause_lock = threading.Lock()
 pause_event = threading.Event()
 pause_event.set()
 AUTO_ROTATE_CELLULAR = False
+
+def get_active_gateway():
+    try:
+        lines = subprocess.getoutput("ip -4 route show default").strip().splitlines()
+        if lines:
+            first = lines[0]
+            if "wwan0" in first:
+                return "mobicom"
+            elif "wlan0" in first:
+                return "wifi"
+    except Exception:
+        pass
+    return "unknown"
+
+def switch_to_mobicom_failover():
+    global SESSION_GEN
+    try:
+        sys.stdout.write("\n🚨 [FAILOVER] Гэрийн Wi-Fi түр блок орсон тул MobiCom 4G SIM рүү автоматаар шилжиж байна...\n")
+        sys.stdout.flush()
+        subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'Univision_576E', 'ipv4.route-metric', '300'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        subprocess.run(['sudo', 'nmcli', 'connection', 'modify', 'MobiCom', 'ipv4.route-metric', '40'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        subprocess.run(['sudo', 'nmcli', 'connection', 'up', 'MobiCom'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+        time.sleep(2)
+        new_ip = subprocess.getoutput('curl --max-time 8 -s -4 https://icanhazip.com || curl --max-time 8 -s -4 https://api.ipify.org').strip()
+        SESSION_GEN += 1
+        sys.stdout.write(f"✅ [FAILOVER SUCCESS] Одоо MobiCom 4G ({new_ip}) гарцаар ажиллаж байна!\n")
+        sys.stdout.flush()
+        return True
+    except Exception as e:
+        sys.stdout.write(f"⚠️  [FAILOVER ERROR] {e}\n")
+        sys.stdout.flush()
+        return False
 
 def rotate_cellular_ip():
     global SESSION_GEN
@@ -199,61 +245,84 @@ def handle_rate_limit(code, msg=""):
             pause_event.clear()
             sys.stdout.write(f"\n⚠️  [RATE LIMIT / PROTECTION {code}] Серверээс түр шалгалт/хязгаарлалт илэрлээ!\n")
             sys.stdout.flush()
-            if AUTO_ROTATE_CELLULAR:
-                # 403 илэрмэгц шууд модемоороо шинэ IP авна
+            
+            gw = get_active_gateway()
+            if gw == "wifi":
+                # Wi-Fi дээр блок илэрвэл шууд MobiCom 4G рүү шилжинэ
+                switch_to_mobicom_failover()
+                time.sleep(3)
+            elif AUTO_ROTATE_CELLULAR:
+                # Хэрэв MobiCom 4G дээр блок гарвал модемоор шинэ IP авна
                 rotate_cellular_ip()
                 time.sleep(3)
             else:
                 cooldown = 120
                 sys.stdout.write(f"{cooldown} сек амрааж байна...\n")
-                sys.stdout.write("💡 [ЗӨВЛӨМЖ] Хэрэв Мобайл дата ашиглаж байгаа бол утсан дээрээ Нислэгийн горим (Airplane mode)-ыг 3 сек асаагаад унтраавал шууд шинэ IP авна.\n")
                 sys.stdout.flush()
                 time.sleep(cooldown)
+                
             pause_event.set()
-            sys.stdout.write("✅ [RESUMED] Шинэ IP дээр таталтыг шууд үргэлжлүүлж байна.\n")
+            sys.stdout.write("✅ [RESUMED] Таталтыг шууд үргэлжлүүлж байна.\n")
             sys.stdout.flush()
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "X-Requested-With": "XMLHttpRequest"
-}
 
 def fetch_single_tender(tender_meta, retries=10):
     inv_id = str(tender_meta["inv_id"]).strip()
-    url = "https://user.tender.gov.mn/mn/result/detail/bidderList"
-    payload = {
-        "invitationId": inv_id,
-        "groupBy": "tender"
-    }
     
     for attempt in range(retries):
         # Wait if paused due to rate limiting
         pause_event.wait()
         # Random jitter to look human and avoid traffic spikes
-        time.sleep(random.uniform(0.3, 0.8))
+        time.sleep(random.uniform(0.1, 0.4))
         
         try:
             s = get_session()
-            r = s.post(url, data=payload, headers=HEADERS, timeout=20)
             
-            if r.status_code in [403, 429]:
-                # 403 эсвэл 429 бол блок / лимит тул шууд IP сэлгээд дахин оролдоно
-                handle_rate_limit(r.status_code, "Cloudflare / Rate Limit")
+            # Step 1: Fetch invitation detail page HTML to extract subTenderId(s)
+            url_detail = f"https://www.tender.gov.mn/mn/invitation/detail/{inv_id}"
+            r_detail = s.get(url_detail, headers=HEADERS_DETAIL, timeout=15)
+            
+            if r_detail.status_code in [403, 429]:
+                handle_rate_limit(r_detail.status_code, "Cloudflare / Rate Limit on detail page")
                 time.sleep(3 + attempt * 2)
                 continue
-            elif r.status_code != 200:
+            elif r_detail.status_code != 200:
                 time.sleep(2 + attempt * 2)
                 continue
                 
-            resp_json = r.json()
-            raw_rows = resp_json.get("data", [])
+            sub_ids = list(set(re.findall(r'subTenderId[^\d]+(\d+)', r_detail.text)))
             
             parsed_bidders = []
-            for row in raw_rows:
-                b = parse_bidder_row(row, tender_meta)
-                if b:
-                    parsed_bidders.append(b)
+            url_bidders = "https://www.tender.gov.mn/api/invitation-bidders"
+            
+            # Step 2: Fetch bidders for each subTenderId
+            success = True
+            for sid in sub_ids:
+                payload = {
+                    "invitationId": int(inv_id),
+                    "tenderId": int(sid)
+                }
+                r_bidders = s.post(url_bidders, json=payload, headers=HEADERS_API, timeout=15)
+                
+                if r_bidders.status_code in [403, 429]:
+                    handle_rate_limit(r_bidders.status_code, "Cloudflare / Rate Limit on bidders")
+                    success = False
+                    break
+                elif r_bidders.status_code != 200:
+                    success = False
+                    break
                     
+                bidders_json = r_bidders.json()
+                raw_rows = bidders_json.get("data", [])
+                
+                for row in raw_rows:
+                    b = parse_bidder_row(row, tender_meta)
+                    if b:
+                        parsed_bidders.append(b)
+            
+            if not success:
+                time.sleep(2 + attempt * 2)
+                continue
+                
             winners_count = sum(1 for b in parsed_bidders if "Шалгарсан" in b["status"])
             losers_count = len(parsed_bidders) - winners_count
             
@@ -458,6 +527,26 @@ def main():
         write_queue.put({"meta": meta, "res": res})
         return res
         
+    # Baseline counts from database
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    c = conn.cursor()
+    c.execute("SELECT count(*) FROM tender_sync_log;")
+    db_initial_tenders = c.fetchone()[0] or 0
+    c.execute("""
+        SELECT 
+            count(*),
+            sum(case when status like '%Шалгарсан%' then 1 else 0 end),
+            sum(case when status not like '%Шалгарсан%' then 1 else 0 end)
+        FROM tender_bidders;
+    """)
+    row = c.fetchone()
+    db_initial_bidders = row[0] or 0
+    db_initial_winners = row[1] or 0
+    db_initial_losers = row[2] or 0
+    conn.close()
+    
+    total_all_tenders = len(all_tenders)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] DB Baseline: {db_initial_tenders:,} tenders processed, {db_initial_bidders:,} bidders ({db_initial_winners:,} winners, {db_initial_losers:,} losers).")
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Starting harvester with {args.workers} workers...")
     print("-" * 80)
     
@@ -485,14 +574,19 @@ def main():
             eta_m, eta_s = divmod(int(rem_sec), 60)
             eta_h, eta_m = divmod(eta_m, 60)
             eta_str = f"{eta_h:02d}:{eta_m:02d}:{eta_s:02d}"
-            pct = (done_count / total_to_process) * 100
+            
+            cum_processed = db_initial_tenders + done_count
+            cum_bidders = db_initial_bidders + total_bidders
+            cum_winners = db_initial_winners + total_winners
+            cum_losers = db_initial_losers + total_losers
+            overall_pct = (cum_processed / total_all_tenders * 100) if total_all_tenders > 0 else 0
             
             # Print live progress every 20 items or at completion
             if done_count % 20 == 0 or done_count == total_to_process:
                 status_line = (
-                    f"\r[{pct:5.1f}%] {done_count:,}/{total_to_process:,} | "
+                    f"\r[{overall_pct:5.1f}%] {cum_processed:,}/{total_all_tenders:,} (Сесс: {done_count:,}) | "
                     f"Speed: {speed:4.1f}/s | ETA: {eta_str} | "
-                    f"Bidders: {total_bidders:,} (Win:{total_winners:,}, Lost:{total_losers:,}) | "
+                    f"Bidders: {cum_bidders:,} (+{total_bidders}) (Win:{cum_winners:,}, Lost:{cum_losers:,}) | "
                     f"Err: {total_errors}"
                 )
                 sys.stdout.write(status_line)
@@ -510,15 +604,20 @@ def main():
                 last_status_write = time.time()
                 status_payload = {
                     "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "total_tenders": total_to_process,
-                    "processed_tenders": done_count,
-                    "progress_percent": round(pct, 2),
+                    "total_tenders": total_all_tenders,
+                    "processed_tenders": cum_processed,
+                    "progress_percent": round(overall_pct, 2),
+                    "session_processed": done_count,
+                    "session_total": total_to_process,
                     "speed_per_second": round(speed, 1),
                     "eta": eta_str,
                     "elapsed_seconds": round(elapsed, 1),
-                    "total_bidders": total_bidders,
-                    "total_winners": total_winners,
-                    "total_losers": total_losers,
+                    "total_bidders": cum_bidders,
+                    "total_winners": cum_winners,
+                    "total_losers": cum_losers,
+                    "session_bidders": total_bidders,
+                    "session_winners": total_winners,
+                    "session_losers": total_losers,
                     "total_errors": total_errors,
                     "is_running": done_count < total_to_process
                 }
