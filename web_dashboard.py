@@ -18,7 +18,7 @@ import threading
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 PORT = 8088
 HARVEST_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -283,6 +283,46 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             font-weight: 600;
         }
 
+        /* Carrier Switcher */
+        .carrier-pill {
+            background: transparent;
+            border: 1px solid transparent;
+            color: #94a3b8;
+            padding: 4px 10px;
+            border-radius: 7px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .carrier-pill:hover {
+            color: #f1f5f9;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .carrier-pill.active {
+            background: rgba(59, 130, 246, 0.25);
+            color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.5);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+        }
+
+        .carrier-pill.active.pill-gmobile {
+            background: rgba(234, 179, 8, 0.22);
+            color: #fde047;
+            border-color: rgba(234, 179, 8, 0.5);
+            box-shadow: 0 0 10px rgba(234, 179, 8, 0.3);
+        }
+
+        .carrier-pill.active.pill-mobicom {
+            background: rgba(239, 68, 68, 0.22);
+            color: #fca5a5;
+            border-color: rgba(239, 68, 68, 0.5);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+        }
+
         .footer {
             text-align: center;
             font-size: 11px;
@@ -300,7 +340,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <div>
                     <div class="device-title">CM5 Harvester</div>
                     <div class="device-sub">
-                        <span>MobiCom 4G LTE (99603525)</span>
+                        <span id="header-carrier-label">4G LTE Модем</span>
                         <span>•</span>
                         <span id="uptime-text">NVMe SSD</span>
                     </div>
@@ -354,16 +394,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- MobiCom Cellular Data Meter Card -->
+        <!-- Cellular Data Meter Card -->
         <div class="card data-box" style="border: 1px solid rgba(59, 130, 246, 0.3); background: rgba(15, 23, 42, 0.75);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-size: 16px;">📊</span>
-                    <span style="font-weight: 700; font-size: 14px; color: #f1f5f9;">MobiCom 4G Дата Хяналт</span>
+                    <span id="card-carrier-title" style="font-weight: 700; font-size: 14px; color: #f1f5f9;">4G Дата Хяналт</span>
                     <span id="data-live-badge" style="display: none; background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #34d399; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px;">● LIVE ХЯНАЛТ</span>
                 </div>
                 <div style="font-size: 13px; color: #34d399; font-weight: 700;" id="data-remaining">-- GB үлдсэн</div>
             </div>
+
+            <!-- Operator Switcher Pills -->
+            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.03); padding: 5px 8px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.07); margin-bottom: 10px; flex-wrap: wrap; gap: 6px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; font-weight: 600;">
+                    <span>📶</span>
+                    <span>Оператор шилжүүлэгч:</span>
+                </div>
+                <div class="carrier-pill-group" style="display: flex; gap: 4px;">
+                    <button type="button" class="carrier-pill active" id="pill-auto" onclick="switchCarrier('auto')">🔄 Автомат</button>
+                    <button type="button" class="carrier-pill" id="pill-gmobile" onclick="switchCarrier('gmobile')">🟡 G-Mobile</button>
+                    <button type="button" class="carrier-pill" id="pill-mobicom" onclick="switchCarrier('mobicom')">🔴 MobiCom</button>
+                </div>
+            </div>
+
             <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
                 <span id="data-used" style="font-weight: 600; color: #60a5fa;">-- MB ашигласан</span>
                 <span id="data-pct" style="color: #94a3b8; font-size: 12px;">--%</span>
@@ -377,31 +431,31 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
             <!-- Contract & Payment Status -->
             <div id="carrier-bill-row" style="display: flex; justify-content: space-between; font-size: 11px; color: #93c5fd; background: rgba(30, 58, 138, 0.25); padding: 6px 10px; border-radius: 6px; margin-bottom: 8px; border: 1px solid rgba(59, 130, 246, 0.2);">
-                <span>💳 Гэрээний төлбөрийн үлдэгдэл: <strong id="carrier-bill-val" style="color: #34d399;">0₮</strong></span>
+                <span id="carrier-bill-span">💳 Дансны үлдэгдэл: <strong id="carrier-bill-val" style="color: #34d399;">0₮</strong></span>
                 <span id="carrier-expiry-val" style="color: #cbd5e1;">Хүчинтэй: 2026-10-31 23:59</span>
             </div>
 
             <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 6px;">
                 <span>📶 Идэвхтэй гарц: <strong id="gateway-val" style="color: #34d399;">Шалгаж байна...</strong></span>
-                <span>🛡️ Автомат шилжилт: <strong style="color: #60a5fa;">MobiCom 4G Failover бэлэн</strong></span>
+                <span>🛡️ Автомат шилжилт: <strong id="failover-carrier-label" style="color: #60a5fa;">4G Failover бэлэн</strong></span>
             </div>
             <!-- Carrier Official SMS Verification Card -->
             <div id="carrier-sms-box" style="margin-top: 10px; font-size: 11.5px; color: #cbd5e1; background: rgba(15, 23, 42, 0.85); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.35); border-left: 4px solid #10b981;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
                     <div style="display: flex; align-items: center; gap: 6px;">
                         <span style="font-size: 13px;">📩</span>
-                        <span style="font-weight: 700; color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">MobiCom Албан ёсны SMS (592)</span>
+                        <span id="carrier-sms-label" style="font-weight: 700; color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Албан ёсны SMS лавлагаа</span>
                     </div>
                     <button id="btn-check-sms" onclick="sendSmsCheck()" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #ffffff; border: 1px solid rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); transition: all 0.2s ease;">
                         <span id="sms-btn-icon">💬</span>
-                        <span id="sms-btn-text">Үлдэгдэл шалгах (592)</span>
+                        <span id="sms-btn-text">Үлдэгдэл шалгах</span>
                     </button>
                 </div>
                 <div id="carrier-sms-val" style="color: #f1f5f9; font-weight: 500; line-height: 1.45; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', monospace; background: rgba(0,0,0,0.3); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); min-height: 20px;">
                     Шалгаж байна...
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 10px; color: #64748b;">
-                    <span>Заавар: <code>B ➔ 592</code> руу мессеж илгээж бодит үлдэгдлийг татна</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 10px; color: #64748b; flex-wrap: wrap; gap: 4px;">
+                    <span id="carrier-guide-text">Заавар: Мессеж илгээж бодит үлдэгдлийг татна</span>
                     <span id="carrier-sms-time"></span>
                 </div>
             </div>
@@ -559,6 +613,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 if (data.db_total_bidders) {
                     document.getElementById('db-total-bidders').innerText = Number(data.db_total_bidders).toLocaleString();
                 }
+
+                // Carrier Info & Switching UI Sync
+                if (data.active_carrier) {
+                    activeCarrierConfig = data.active_carrier;
+                    currentCarrierMode = data.carrier_mode || 'auto';
+                    updatePillsUI(currentCarrierMode);
+                    updateCarrierUI(activeCarrierConfig, currentCarrierMode);
+                }
+
                 // Data Usage
                 if (data.data_usage) {
                     const du = data.data_usage;
@@ -583,7 +646,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     
                     const liveBadge = document.getElementById('data-live-badge');
                     if (liveBadge) {
-                        liveBadge.style.display = (data.active_gateway === 'mobicom' || (du.speed_kbps !== undefined && du.speed_kbps > 0)) ? 'inline-block' : 'none';
+                        liveBadge.style.display = (data.active_gateway === activeCarrierConfig.code || (du.speed_kbps !== undefined && du.speed_kbps > 0)) ? 'inline-block' : 'none';
                     }
                     
                     // Render packages chips
@@ -599,9 +662,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     }
 
                     // Render billing / contract info
-                    if (du.bill_info) {
-                        const billVal = document.getElementById('carrier-bill-val');
-                        if (billVal) billVal.innerText = du.bill_info.balance_text || '0₮';
+                    const billRow = document.getElementById('carrier-bill-row');
+                    if (billRow) {
+                        const billSpan = document.getElementById('carrier-bill-span');
+                        if (du.bill_info && du.bill_info.balance_text) {
+                            billRow.style.display = 'flex';
+                            if (billSpan) billSpan.innerHTML = `💳 Дансны үлдэгдэл: <strong id="carrier-bill-val" style="color: #34d399;">${du.bill_info.balance_text}</strong>`;
+                        } else {
+                            if (billSpan) billSpan.innerHTML = `📦 Нийт багц: <strong style="color: #38bdf8;">${du.plan_gb} GB</strong>`;
+                            billRow.style.display = (du.expiry || du.plan_gb) ? 'flex' : 'none';
+                        }
                     }
                     if (du.expiry) {
                         const expVal = document.getElementById('carrier-expiry-val');
@@ -630,6 +700,77 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         let isSmsChecking = false;
+        let activeCarrierConfig = {
+            code: 'gmobile',
+            name: 'G-Mobile',
+            sms_num: '236',
+            sms_text: 'D',
+            full_label: 'G-Mobile 4G LTE'
+        };
+        let currentCarrierMode = 'auto';
+
+        function updatePillsUI(mode) {
+            ['auto', 'gmobile', 'mobicom'].forEach(m => {
+                const pill = document.getElementById('pill-' + m);
+                if (pill) {
+                    if (m === mode) {
+                        pill.classList.add('active');
+                        if (m === 'mobicom') pill.classList.add('pill-mobicom');
+                        if (m === 'gmobile') pill.classList.add('pill-gmobile');
+                    } else {
+                        pill.classList.remove('active', 'pill-mobicom', 'pill-gmobile');
+                    }
+                }
+            });
+        }
+
+        function updateCarrierUI(c, mode) {
+            if (!c) return;
+            activeCarrierConfig = c;
+            const titleEl = document.getElementById('card-carrier-title');
+            if (titleEl) {
+                const autoBadge = (mode === 'auto') ? '<span style="font-size:10px; color:#10b981; font-weight:600; margin-left:4px; background:rgba(16,185,129,0.15); padding:1px 6px; border-radius:4px;">Auto</span>' : '';
+                titleEl.innerHTML = `${c.name} 4G Дата Хяналт ${autoBadge}`;
+            }
+            const headerCarrier = document.getElementById('header-carrier-label');
+            if (headerCarrier) {
+                headerCarrier.innerText = c.full_label || (c.name + ' 4G LTE');
+            }
+            const smsLabel = document.getElementById('carrier-sms-label');
+            if (smsLabel) {
+                smsLabel.innerText = `${c.name} Албан ёсны SMS (${c.sms_num})`;
+            }
+            const btnText = document.getElementById('sms-btn-text');
+            if (btnText && !isSmsChecking) {
+                btnText.innerText = `Үлдэгдэл шалгах (${c.sms_num})`;
+            }
+            const guideEl = document.getElementById('carrier-guide-text');
+            if (guideEl) {
+                guideEl.innerHTML = `Заавар: <code>${c.sms_text} ➔ ${c.sms_num}</code> руу илгээж шалгана`;
+            }
+            const failoverEl = document.getElementById('failover-carrier-label');
+            if (failoverEl) {
+                failoverEl.innerText = `${c.name} 4G Failover бэлэн`;
+            }
+        }
+
+        async function switchCarrier(carrierCode) {
+            currentCarrierMode = carrierCode;
+            updatePillsUI(carrierCode);
+            try {
+                const res = await fetch('/api/carrier/switch?carrier=' + encodeURIComponent(carrierCode), { method: 'POST' });
+                const data = await res.json();
+                if (data.success && data.active_carrier) {
+                    currentCarrierMode = data.carrier_mode || carrierCode;
+                    activeCarrierConfig = data.active_carrier;
+                    updatePillsUI(currentCarrierMode);
+                    updateCarrierUI(data.active_carrier, currentCarrierMode);
+                    updateStatus();
+                }
+            } catch (err) {
+                console.error('Failed to switch carrier:', err);
+            }
+        }
 
         async function sendSmsCheck() {
             if (isSmsChecking) return;
@@ -641,15 +782,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const smsVal = document.getElementById('carrier-sms-val');
             const smsTime = document.getElementById('carrier-sms-time');
 
+            const cName = activeCarrierConfig.name || 'Оператор';
+            const cNum = activeCarrierConfig.sms_num || 'SMS';
+            const cCmd = activeCarrierConfig.sms_text || 'B';
+
             btn.disabled = true;
             btn.style.opacity = '0.7';
             btn.style.cursor = 'not-allowed';
             btnIcon.innerText = '⏳';
             btnText.innerText = 'Илгээж байна...';
-            smsVal.innerHTML = '<span style="color: #60a5fa;">📡 4G модемоос MobiCom (592) руу "B" мессеж илгээлээ. Хариу хүлээж байна (4-6с)...</span>';
+            smsVal.innerHTML = `<span style="color: #60a5fa;">📡 4G модемоос ${cName} (${cNum}) руу "${cCmd}" мессеж илгээлээ. Хариу хүлээж байна (4-6с)...</span>`;
 
             try {
-                const res = await fetch('/api/sms/check', { method: 'POST' });
+                const res = await fetch('/api/sms/check?carrier=' + encodeURIComponent(currentCarrierMode), { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
                     btnIcon.innerText = '✅';
@@ -676,7 +821,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     btn.style.opacity = '1';
                     btn.style.cursor = 'pointer';
                     btnIcon.innerText = '💬';
-                    btnText.innerText = 'Дахин шалгах';
+                    btnText.innerText = `Дахин шалгах (${activeCarrierConfig.sms_num})`;
                     isSmsChecking = false;
                 }, 3000);
             }
@@ -692,7 +837,58 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_USAGE_FILE = os.path.join(SCRIPT_DIR, "sim_data_usage.json")
-TOTAL_PLAN_GB = 8.0
+
+CARRIER_CONFIGS = {
+    "mobicom": {
+        "code": "mobicom",
+        "name": "MobiCom",
+        "full_label": "MobiCom 4G LTE",
+        "sms_num": "592",
+        "sms_text": "B",
+        "sender_match": r"592\b",
+        "bill_sender_match": r"tulbur\b",
+        "default_plan_gb": 8.0,
+        "guide_text": "Заавар: B ➔ 592 руу мессеж илгээж бодит үлдэгдлийг татна"
+    },
+    "gmobile": {
+        "code": "gmobile",
+        "name": "G-Mobile",
+        "full_label": "G-Mobile 4G LTE",
+        "sms_num": "236",
+        "sms_text": "D",
+        "sender_match": r"236\b",
+        "bill_sender_match": r"236\b",
+        "default_plan_gb": 150.0,
+        "guide_text": "Заавар: D ➔ 236 руу мессеж илгээж бодит үлдэгдлийг татна"
+    },
+    "unitel": {
+        "code": "unitel",
+        "name": "Unitel",
+        "full_label": "Unitel 4G LTE",
+        "sms_num": "1414",
+        "sms_text": "DATA",
+        "sender_match": r"1414\b",
+        "bill_sender_match": r"1414\b",
+        "default_plan_gb": 10.0,
+        "guide_text": "Заавар: DATA ➔ 1414 руу мессеж илгээж бодит үлдэгдлийг татна"
+    },
+    "skytel": {
+        "code": "skytel",
+        "name": "Skytel",
+        "full_label": "Skytel 4G LTE",
+        "sms_num": "123",
+        "sms_text": "DATA",
+        "sender_match": r"123\b",
+        "bill_sender_match": r"123\b",
+        "default_plan_gb": 10.0,
+        "guide_text": "Заавар: DATA ➔ 123 руу мессеж илгээж бодит үлдэгдлийг татна"
+    }
+}
+
+selected_carrier_mode = "auto"
+cached_hw_carrier = None
+last_hw_check = 0
+
 last_raw_rx = 0
 last_raw_tx = 0
 accumulated_bytes = 0
@@ -701,12 +897,83 @@ last_speed_bytes = 0
 last_speed_time = 0
 current_speed_kbps = 0.0
 last_save_time = 0
-cached_carrier_sms = None
-cached_bill_sms = None
+cached_carrier_sms = {}
+cached_bill_sms = {}
 sms_check_lock = threading.Lock()
 last_sms_check_time = 0
 
-def parse_carrier_sms(data_text, bill_text=None):
+# Load persistent carrier selection if exists
+if os.path.exists(DATA_USAGE_FILE):
+    try:
+        with open(DATA_USAGE_FILE, "r") as f:
+            _d_init = json.load(f)
+            if _d_init.get("selected_carrier_mode"):
+                selected_carrier_mode = _d_init.get("selected_carrier_mode")
+            if isinstance(_d_init.get("cached_sms_by_carrier"), dict):
+                cached_carrier_sms.update(_d_init.get("cached_sms_by_carrier"))
+            elif _d_init.get("carrier_sms"):
+                c_init_code = _d_init.get("carrier_code", "gmobile")
+                cached_carrier_sms[c_init_code] = _d_init.get("carrier_sms")
+    except Exception:
+        pass
+
+def detect_carrier_hardware():
+    global cached_hw_carrier, last_hw_check
+    now = time.time()
+    if cached_hw_carrier and (now - last_hw_check < 30.0):
+        return cached_hw_carrier
+    try:
+        out = subprocess.getoutput("sudo mmcli -m 0 2>/dev/null")
+        sim_out = subprocess.getoutput("sudo mmcli -i 0 2>/dev/null || sudo mmcli -m 0 --sim=0 2>/dev/null")
+        combined = out + " " + sim_out
+        op_name = ""
+        op_id = ""
+        m = re.search(r"operator name:\s*([^\n\r]+)", combined, re.I)
+        if m:
+            op_name = m.group(1).strip()
+        m2 = re.search(r"operator id:\s*(\d+)", combined, re.I)
+        if m2:
+            op_id = m2.group(1).strip()
+        
+        if "gmobile" in op_name.lower() or "g-mobile" in op_name.lower() or op_id.startswith("42806"):
+            res = CARRIER_CONFIGS["gmobile"]
+        elif "mobi" in op_name.lower() or op_id.startswith("42801"):
+            res = CARRIER_CONFIGS["mobicom"]
+        elif "unitel" in op_name.lower() or op_id.startswith("42888"):
+            res = CARRIER_CONFIGS["unitel"]
+        elif "skytel" in op_name.lower() or op_id.startswith("42899"):
+            res = CARRIER_CONFIGS["skytel"]
+        else:
+            sms_out = subprocess.getoutput("sudo mmcli -m 0 --messaging-list-sms 2>/dev/null")
+            if "236" in sms_out:
+                res = CARRIER_CONFIGS["gmobile"]
+            elif "592" in sms_out:
+                res = CARRIER_CONFIGS["mobicom"]
+            else:
+                res = CARRIER_CONFIGS["gmobile"]
+        cached_hw_carrier = res
+        last_hw_check = now
+        return res
+    except Exception:
+        return CARRIER_CONFIGS["gmobile"]
+
+def get_active_carrier(override_code=None):
+    global selected_carrier_mode
+    mode = (override_code or selected_carrier_mode).lower()
+    if mode == "auto":
+        c = dict(detect_carrier_hardware())
+        c["mode"] = "auto"
+        return c
+    elif mode in CARRIER_CONFIGS:
+        c = dict(CARRIER_CONFIGS[mode])
+        c["mode"] = mode
+        return c
+    else:
+        c = dict(detect_carrier_hardware())
+        c["mode"] = "auto"
+        return c
+
+def parse_carrier_sms(data_text, bill_text=None, carrier_code=None):
     if not data_text and not bill_text:
         return None
     res = {
@@ -720,12 +987,31 @@ def parse_carrier_sms(data_text, bill_text=None):
     }
     
     if data_text:
-        # Expiry
-        exp_m = re.findall(r'duusah hugatsaa\s*([\d\-]+(?:\s+[\d:]+)?)', data_text, re.I)
+        # Expiry: matches 'duusah hugatsaa 2026-10-31' or 'xugacaa 2026.11.07'
+        exp_m = re.findall(r'(?:duusah hugatsaa|xugacaa|hugatsaa)[:\s]*([\d\.\-]+(?:\s+[\d:]+)?)', data_text, re.I)
         if exp_m:
             res['expiry'] = exp_m[-1].strip()
 
-        # 1. Check for bonus / uramshuulal
+        # 1. G-Mobile: Tany dansand 153564.75MB undsen data baina
+        gm_undsen = re.search(r'([\d,]+(?:\.\d+)?)\s*(MB|GB)\s+undsen\s+data', data_text, re.I)
+        if not gm_undsen:
+            gm_undsen = re.search(r'dansand\s*([\d,]+(?:\.\d+)?)\s*(MB|GB)', data_text, re.I)
+        if gm_undsen:
+            rem_str = gm_undsen.group(1).replace(',', '')
+            rem_val = float(rem_str) * (1024 if gm_undsen.group(2).upper() == 'GB' else 1)
+            plan_val = 153600.0 if rem_val > 50000 else (float(int(rem_val / 1024) + 1) * 1024)
+            used_val = max(0.0, plan_val - rem_val)
+            res['packages'].append({'name': 'Үндсэн дата', 'plan_mb': plan_val, 'remaining_mb': rem_val, 'used_mb': used_val})
+
+        # 2. G-Mobile honogiin bagts: X honogiin data bagts... uldegdel Y (MB|GB)
+        honog_m = re.search(r'(\d+)\s*honogiin\s*data\s*bagts.*?uldegdel\s*([\d,]+(?:\.\d+)?)\s*(MB|GB)', data_text, re.I)
+        if honog_m:
+            h_name = f"{honog_m.group(1)} хоногийн багц"
+            rem_str = honog_m.group(2).replace(',', '')
+            rem_val = float(rem_str) * (1024 if honog_m.group(3).upper() == 'GB' else 1)
+            res['packages'].append({'name': h_name, 'plan_mb': rem_val, 'remaining_mb': rem_val, 'used_mb': 0.0})
+
+        # 3. MobiCom bonus / uramshuulal
         uram_m = re.search(r'uramshuull?iin\s*([\d\.]+)\s*(GB|MB).*?uldegdel\s*([\d,]+(?:\.\d+)?)\s*(MB|GB)', data_text, re.I)
         if uram_m:
             plan_val = float(uram_m.group(1)) * (1024 if uram_m.group(2).upper() == 'GB' else 1)
@@ -734,7 +1020,7 @@ def parse_carrier_sms(data_text, bill_text=None):
             used_val = max(0.0, plan_val - rem_val)
             res['packages'].append({'name': 'Урамшуулал', 'plan_mb': plan_val, 'remaining_mb': rem_val, 'used_mb': used_val})
         
-        # 2. Check for Dagaldah / regular package
+        # 4. MobiCom Dagaldah / regular package
         dag_m = re.search(r'Dagaldah\s*([\d\.]+)\s*(GB|MB).*?ashiglasan\s*([\d,]+(?:\.\d+)?)\s*(MB|GB)', data_text, re.I)
         if dag_m:
             plan_val = float(dag_m.group(1)) * (1024 if dag_m.group(2).upper() == 'GB' else 1)
@@ -743,6 +1029,7 @@ def parse_carrier_sms(data_text, bill_text=None):
             rem_val = max(0.0, plan_val - used_val)
             res['packages'].append({'name': 'Дагалдах багц', 'plan_mb': plan_val, 'remaining_mb': rem_val, 'used_mb': used_val})
 
+        # 5. MobiCom single package fallback
         if not res['packages']:
             single_rem = re.search(r'uldegdel\s*([\d,]+(?:\.\d+)?)\s*(MB|GB)', data_text, re.I)
             single_used = re.search(r'ashiglasan\s*([\d,]+(?:\.\d+)?)\s*(MB|GB)', data_text, re.I)
@@ -772,7 +1059,7 @@ def parse_carrier_sms(data_text, bill_text=None):
             for p in res['packages']:
                 p_rem = f"{p['remaining_mb']/1024:.2f} GB" if p['remaining_mb'] >= 1024 else f"{p['remaining_mb']:.1f} MB"
                 pkg_summaries.append(f"{p['name']}: {p_rem}")
-            res['summary'] = f"🟢 Нийт үлдсэн: {rem_gb:.2f} GB ({' + '.join(pkg_summaries)}) | Хүчинтэй: {res['expiry'] or '2026-10-31'}"
+            res['summary'] = f"🟢 Нийт үлдсэн: {rem_gb:.2f} GB ({' + '.join(pkg_summaries)}) | Хүчинтэй: {res['expiry'] or 'Тодорхойгүй'}"
         else:
             res['summary'] = data_text
 
@@ -786,10 +1073,15 @@ def parse_carrier_sms(data_text, bill_text=None):
 
     return res
 
-def get_carrier_sms_messages():
-    """ModemManager-оос 592 болон TULBUR-аас ирсэн сүүлийн SMS-үүдийг унших"""
+def get_carrier_sms_messages(carrier_info=None):
+    """ModemManager-оос тухайн оператороос ирсэн сүүлийн SMS-үүдийг унших"""
     data_sms = None
     bill_sms = None
+    if not carrier_info:
+        carrier_info = get_active_carrier()
+    sender_pat = carrier_info.get("sender_match", r"236\b")
+    bill_pat = carrier_info.get("bill_sender_match", r"tulbur\b")
+    
     try:
         out = subprocess.getoutput("sudo mmcli -m 0 --messaging-list-sms 2>/dev/null")
         sms_ids = [int(x) for x in re.findall(r'/SMS/(\d+)\s+\(received\)', out)]
@@ -803,47 +1095,39 @@ def get_carrier_sms_messages():
             sender = m_num.group(1).strip() if m_num else ""
             txt = m_txt.group(1).strip()
             
-            # Check for 592 Data SMS
-            if re.search(r'592\b', sender, re.I):
-                if re.search(r'(uldegdel|ashiglasan|data bagts)', txt, re.I):
-                    if not data_sms:
-                        data_sms = txt
-                elif not data_sms:
-                    data_sms = txt # fallback
+            # Check for carrier Data SMS
+            if re.search(sender_pat, sender, re.I):
+                if not data_sms:
+                    data_sms = txt
             
-            # Check for TULBUR Billing SMS
-            if re.search(r'tulbur\b', sender, re.I):
+            # Check for carrier Bill SMS
+            if re.search(bill_pat, sender, re.I) and not re.search(sender_pat, sender, re.I):
                 if not bill_sms:
                     bill_sms = txt
     except Exception:
         pass
     return data_sms, bill_sms
 
-def get_data_usage():
-    global last_raw_rx, last_raw_tx, accumulated_bytes, last_save_time, cached_carrier_sms, cached_bill_sms
+def get_data_usage(carrier_info=None):
+    global last_raw_rx, last_raw_tx, accumulated_bytes, last_save_time
     global sms_baseline_wwan_bytes, last_speed_bytes, last_speed_time, current_speed_kbps
+    global cached_carrier_sms, cached_bill_sms, selected_carrier_mode
     now = time.time()
     
-    if os.path.exists(DATA_USAGE_FILE):
-        try:
-            with open(DATA_USAGE_FILE, "r") as f:
-                d_file = json.load(f)
-                if accumulated_bytes == 0:
-                    accumulated_bytes = d_file.get("accumulated_bytes", 0)
-                if sms_baseline_wwan_bytes == 0:
-                    sms_baseline_wwan_bytes = d_file.get("sms_baseline_wwan_bytes", 0)
-                if d_file.get("carrier_sms") and not cached_carrier_sms:
-                    cached_carrier_sms = d_file.get("carrier_sms")
-        except Exception:
-            pass
+    if not carrier_info:
+        carrier_info = get_active_carrier()
+    c_code = carrier_info.get("code", "gmobile")
 
-    # If no cached carrier sms, fetch from modem
-    if not cached_carrier_sms or not cached_bill_sms:
-        d_sms, b_sms = get_carrier_sms_messages()
+    # If no cached carrier sms for active carrier, fetch from modem inbox
+    if not cached_carrier_sms.get(c_code):
+        d_sms, b_sms = get_carrier_sms_messages(carrier_info)
         if d_sms:
-            cached_carrier_sms = d_sms
+            cached_carrier_sms[c_code] = d_sms
         if b_sms:
-            cached_bill_sms = b_sms
+            cached_bill_sms[c_code] = b_sms
+
+    cur_data_sms = cached_carrier_sms.get(c_code)
+    cur_bill_sms = cached_bill_sms.get(c_code)
 
     rx_path = "/sys/class/net/wwan0/statistics/rx_bytes"
     tx_path = "/sys/class/net/wwan0/statistics/tx_bytes"
@@ -893,7 +1177,7 @@ def get_data_usage():
             live_delta_bytes = curr_total
     live_delta_mb = round(live_delta_bytes / (1024 * 1024), 2)
 
-    parsed = parse_carrier_sms(cached_carrier_sms, cached_bill_sms)
+    parsed = parse_carrier_sms(cur_data_sms, cur_bill_sms, carrier_code=c_code)
     
     if parsed and parsed.get('total_remaining_mb', 0) > 0:
         plan_gb = round(parsed['total_plan_mb'] / 1024, 2)
@@ -909,7 +1193,6 @@ def get_data_usage():
         remaining_mb = round(live_rem_mb, 1)
         used_pct = round((live_used_mb / parsed['total_plan_mb']) * 100, 2) if parsed['total_plan_mb'] > 0 else 0.0
         
-        # Package level live tracking (Deduct from 'Урамшуулал' first, then 'Дагалдах багц')
         live_packages = []
         rem_delta = live_delta_mb
         for p in parsed.get('packages', []):
@@ -927,7 +1210,7 @@ def get_data_usage():
         summary = parsed.get('summary')
         bill_info = parsed.get('bill_info')
     else:
-        plan_gb = TOTAL_PLAN_GB
+        plan_gb = carrier_info.get("default_plan_gb", 150.0)
         used_mb = round(accumulated_bytes / (1024 * 1024), 2)
         used_gb = round(used_mb / 1024, 3)
         remaining_gb = round(max(0.0, plan_gb - used_gb), 2)
@@ -935,7 +1218,7 @@ def get_data_usage():
         used_pct = round((used_gb / plan_gb) * 100, 2) if plan_gb > 0 else 0.0
         packages = []
         expiry = None
-        summary = cached_carrier_sms or ""
+        summary = cur_data_sms or ""
         bill_info = None
 
     if now - last_save_time > 15:
@@ -943,10 +1226,14 @@ def get_data_usage():
         try:
             with open(DATA_USAGE_FILE, "w") as f:
                 json.dump({
+                    "selected_carrier_mode": selected_carrier_mode,
+                    "carrier_code": c_code,
+                    "carrier_name": carrier_info.get("name"),
                     "plan_gb": plan_gb,
                     "accumulated_bytes": accumulated_bytes,
                     "sms_baseline_wwan_bytes": sms_baseline_wwan_bytes,
-                    "carrier_sms": cached_carrier_sms,
+                    "cached_sms_by_carrier": cached_carrier_sms,
+                    "carrier_sms": cur_data_sms,
                     "carrier_parsed": parsed,
                     "live_delta_mb": live_delta_mb,
                     "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -955,6 +1242,10 @@ def get_data_usage():
             pass
 
     return {
+        "carrier_code": c_code,
+        "carrier_name": carrier_info.get("name"),
+        "carrier_label": carrier_info.get("full_label"),
+        "carrier_mode": selected_carrier_mode,
         "plan_gb": plan_gb,
         "used_bytes": accumulated_bytes,
         "used_mb": used_mb,
@@ -968,13 +1259,18 @@ def get_data_usage():
         "expiry": expiry,
         "summary": summary,
         "bill_info": bill_info,
-        "carrier_sms": cached_carrier_sms
+        "carrier_sms": cur_data_sms
     }
 
-def trigger_carrier_sms_check():
+def trigger_carrier_sms_check(carrier_override=None):
     global cached_carrier_sms, cached_bill_sms, last_sms_check_time
     now = time.time()
-    
+    carrier_info = get_active_carrier(carrier_override)
+    c_code = carrier_info["code"]
+    sms_dest = carrier_info["sms_num"]
+    sms_text = carrier_info["sms_text"]
+    sender_pat = carrier_info["sender_match"]
+
     with sms_check_lock:
         try:
             # Get max existing SMS ID before sending
@@ -982,14 +1278,15 @@ def trigger_carrier_sms_check():
             ids_before = [int(x) for x in re.findall(r'/SMS/(\d+)', out_before)]
             max_id = max(ids_before) if ids_before else -1
 
-            # Create SMS: B to 592
-            res = subprocess.getoutput("sudo mmcli -m 0 --messaging-create-sms=\"text='B',number='592'\" 2>/dev/null")
+            # Create SMS: e.g. D to 236 or B to 592
+            res = subprocess.getoutput(f"sudo mmcli -m 0 --messaging-create-sms=\"text='{sms_text}',number='{sms_dest}'\" 2>/dev/null")
             sms_id_match = re.search(r'/SMS/(\d+)', res)
             if not sms_id_match:
-                d_sms, b_sms = get_carrier_sms_messages()
-                parsed = parse_carrier_sms(d_sms, b_sms)
+                d_sms, b_sms = get_carrier_sms_messages(carrier_info)
+                parsed = parse_carrier_sms(d_sms, b_sms, carrier_code=c_code)
                 return {
                     "success": True,
+                    "carrier": c_code,
                     "sms_text": d_sms or "Хариу олдсонгүй",
                     "summary": parsed['summary'] if parsed else "",
                     "parsed": parsed,
@@ -1002,7 +1299,7 @@ def trigger_carrier_sms_check():
             # Delete the sent SMS from modem to avoid filling SIM memory
             subprocess.getoutput(f"sudo mmcli -m 0 --messaging-delete-sms={sid} 2>/dev/null")
 
-            # Poll for new incoming SMS from 592 (up to 8 seconds)
+            # Poll for new incoming SMS matching sender_pat (up to 8 seconds)
             new_data_sms = None
             for _ in range(8):
                 time.sleep(1)
@@ -1011,7 +1308,7 @@ def trigger_carrier_sms_check():
                 new_ids.sort(reverse=True)
                 for nid in new_ids:
                     detail = subprocess.getoutput(f"sudo mmcli -s {nid} 2>/dev/null")
-                    if re.search(r'number:\s*(\+?976)?592\b', detail, re.I):
+                    if re.search(r'number:\s*(\+?976)?' + sender_pat, detail, re.I):
                         m = re.search(r'text:\s*([^\n\r]+)', detail)
                         if m:
                             new_data_sms = m.group(1).strip()
@@ -1020,17 +1317,17 @@ def trigger_carrier_sms_check():
                     break
 
             if not new_data_sms:
-                # Fallback to newest existing 592 message
-                new_data_sms, _ = get_carrier_sms_messages()
+                # Fallback to newest existing matching message
+                new_data_sms, _ = get_carrier_sms_messages(carrier_info)
 
             if new_data_sms:
-                cached_carrier_sms = new_data_sms
-                _, bill_sms = get_carrier_sms_messages()
+                cached_carrier_sms[c_code] = new_data_sms
+                _, bill_sms = get_carrier_sms_messages(carrier_info)
                 if bill_sms:
-                    cached_bill_sms = bill_sms
+                    cached_bill_sms[c_code] = bill_sms
                 last_sms_check_time = time.time()
                 
-                parsed = parse_carrier_sms(new_data_sms, cached_bill_sms)
+                parsed = parse_carrier_sms(new_data_sms, cached_bill_sms.get(c_code), carrier_code=c_code)
                 
                 rx_path = "/sys/class/net/wwan0/statistics/rx_bytes"
                 tx_path = "/sys/class/net/wwan0/statistics/tx_bytes"
@@ -1042,29 +1339,16 @@ def trigger_carrier_sms_check():
                     except Exception:
                         pass
 
-                try:
-                    current_data = {}
-                    if os.path.exists(DATA_USAGE_FILE):
-                        with open(DATA_USAGE_FILE, "r") as f:
-                            current_data = json.load(f)
-                    current_data["carrier_sms"] = new_data_sms
-                    current_data["carrier_parsed"] = parsed
-                    current_data["sms_baseline_wwan_bytes"] = sms_baseline_wwan_bytes
-                    current_data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    with open(DATA_USAGE_FILE, "w") as f:
-                        json.dump(current_data, f, indent=2, ensure_ascii=False)
-                except Exception:
-                    pass
-
                 return {
                     "success": True,
+                    "carrier": c_code,
                     "sms_text": new_data_sms,
                     "summary": parsed['summary'] if parsed else new_data_sms,
                     "parsed": parsed,
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
             else:
-                return {"success": False, "error": "592 дугаараас хариу мессеж ирсэнгүй, түр хүлээгээд дахин шалгана уу."}
+                return {"success": False, "error": f"{carrier_info['name']} ({sms_dest}) дугаараас хариу мессеж ирсэнгүй, түр хүлээгээд дахин шалгана уу."}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -1083,6 +1367,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        global selected_carrier_mode
         parsed = urlparse(self.path)
         if parsed.path == "/" or parsed.path == "/index.html":
             self.send_response(200)
@@ -1121,11 +1406,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             payload["public_ip"] = DashboardHandler.cached_ip
 
+            active_c = get_active_carrier()
+            hw_c = detect_carrier_hardware()
+            payload["carrier_mode"] = selected_carrier_mode
+            payload["active_carrier"] = active_c
+            payload["hardware_carrier"] = hw_c
+            payload["carriers_available"] = ["auto", "gmobile", "mobicom", "unitel", "skytel"]
+
             lines = subprocess.getoutput("ip -4 route show default").strip().splitlines()
             first = lines[0] if lines else ""
             if "wwan0" in first:
-                payload["active_gateway"] = "mobicom"
-                payload["gateway_label"] = "📶 MobiCom 4G (Нөөц гарц)"
+                payload["active_gateway"] = active_c["code"]
+                payload["gateway_label"] = f"📶 {active_c['name']} 4G (Нөөц гарц)"
             elif "wlan0" in first:
                 payload["active_gateway"] = "wifi"
                 payload["gateway_label"] = "🟢 Univision Wi-Fi (Шилэн кабель)"
@@ -1175,9 +1467,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
 
-            payload["data_usage"] = get_data_usage()
+            payload["data_usage"] = get_data_usage(active_c)
 
             self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+        elif parsed.path == "/api/carrier/switch":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            
+            qs = parse_qs(parsed.query)
+            target = qs.get("carrier", ["auto"])[0].lower()
+            if target in ["auto", "mobicom", "gmobile", "unitel", "skytel"]:
+                selected_carrier_mode = target
+                active = get_active_carrier()
+                d_sms, b_sms = get_carrier_sms_messages(active)
+                if d_sms:
+                    cached_carrier_sms[active["code"]] = d_sms
+                if b_sms:
+                    cached_bill_sms[active["code"]] = b_sms
+            
+            res = {
+                "success": True,
+                "carrier_mode": selected_carrier_mode,
+                "active_carrier": get_active_carrier()
+            }
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif parsed.path == "/api/sms/check":
             self.send_response(200)
@@ -1187,7 +1505,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             
-            res = trigger_carrier_sms_check()
+            qs = parse_qs(parsed.query)
+            c_override = qs.get("carrier", [None])[0]
+            res = trigger_carrier_sms_check(carrier_override=c_override)
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         else:
@@ -1196,8 +1516,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        global selected_carrier_mode
         parsed = urlparse(self.path)
-        if parsed.path == "/api/sms/check":
+        if parsed.path == "/api/carrier/switch":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -1205,7 +1526,51 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             
-            res = trigger_carrier_sms_check()
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length).decode('utf-8') if content_length > 0 else ""
+            target = "auto"
+            try:
+                if body.startswith("{"):
+                    b_json = json.loads(body)
+                    target = b_json.get("carrier", "auto").lower()
+                else:
+                    b_qs = parse_qs(body)
+                    if "carrier" in b_qs:
+                        target = b_qs["carrier"][0].lower()
+            except Exception:
+                pass
+            
+            qs = parse_qs(parsed.query)
+            if "carrier" in qs:
+                target = qs["carrier"][0].lower()
+                
+            if target in ["auto", "mobicom", "gmobile", "unitel", "skytel"]:
+                selected_carrier_mode = target
+                active = get_active_carrier()
+                d_sms, b_sms = get_carrier_sms_messages(active)
+                if d_sms:
+                    cached_carrier_sms[active["code"]] = d_sms
+                if b_sms:
+                    cached_bill_sms[active["code"]] = b_sms
+            
+            res = {
+                "success": True,
+                "carrier_mode": selected_carrier_mode,
+                "active_carrier": get_active_carrier()
+            }
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif parsed.path == "/api/sms/check":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            
+            qs = parse_qs(parsed.query)
+            c_override = qs.get("carrier", [None])[0]
+            res = trigger_carrier_sms_check(carrier_override=c_override)
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
         else:
             self.send_response(404)
